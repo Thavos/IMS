@@ -11,7 +11,7 @@
 #define POSITION_BEFORE_CROOSROAD ROAD_LENGTH / 2 - 1
 
 #define MAX_SPEED 5
-#define CAR_COUNT 20
+#define CAR_COUNT 5
 #define PROBABILITY 12 // PROBABILITY of 10 implementing rule number 3
 #define SEED 532464521
 
@@ -82,13 +82,25 @@ typedef struct road
     bool is_intersection;
 } field;
 
+void get_average_speed_values(field (*roads)[ROAD_LENGTH], float *speed, float *measurement){
+    for (int i = 0; i < 4; i++){
+        field *road = roads[i];
+        for (int j = 0; j < ROAD_LENGTH; j++){
+            if (road[j].car_ptr != NULL){
+                (*speed) = (*speed) + road[j].car_ptr->speed;
+                (*measurement)++;
+            }
+        }
+    }
+}
+
 
 void count_passed_cars(field (*roads)[ROAD_LENGTH], int *counter){
     for (int i = 0; i < 4; i++){
         field *road = roads[i];
         for (int j = 53; j < ROAD_LENGTH; j++){
             if (road[j].car_ptr != NULL && road[j].car_ptr->passed_crossroad == false){
-                counter++;
+                (*counter)++;
                 road[j].car_ptr->passed_crossroad = true;
             }
         }
@@ -608,6 +620,9 @@ int main()
 {
 
     int car_passed = 0;
+    float sum_speed = 0;
+    float total_measurement = 0;
+
 
     field road[NUMBER_OF_ROADS][ROAD_LENGTH];
     // field new_road[ROAD_LENGTH];
@@ -682,6 +697,9 @@ int main()
             printf("\033[0;31m\t %s \n\033[0m", dir_info[WEST]);
         }
 
+        count_passed_cars(road, &car_passed);
+        get_average_speed_values(road, &sum_speed, &total_measurement);
+
         for (int i = ROAD_LENGTH - 1; i >= 0; i--)
         {
             // printf("%i\n",i);
@@ -691,12 +709,16 @@ int main()
             // }
             update_road(road, i, NORTH_SOUTH, WEST_EAST);
         }
-        count_passed_cars(road, &car_passed);
+        
         update_semaphor(&NORTH_SOUTH, &WEST_EAST);
         spawn_cars(road);
     }
 
     printf("Number of cars which passed the crossroad: %i\n", car_passed);
+    
+    float average_speed = sum_speed/total_measurement;
+    
+    printf("Average speed of cars was: %f\n",average_speed);
     for (int j = 0; j < 4; j++)
     {
         for (int i = 0; i < ROAD_LENGTH; i++)
@@ -709,3 +731,6 @@ int main()
         }
     }
 }
+
+
+//
