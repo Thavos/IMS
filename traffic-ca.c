@@ -12,7 +12,7 @@
 
 #define MAX_SPEED 5
 #define CAR_COUNT 20
-#define PROBABILITY 10 // PROBABILITY of 10 implementing rule number 3
+#define PROBABILITY 12 // PROBABILITY of 10 implementing rule number 3
 #define SEED 532464521
 
 #define PERCENTAGE 100
@@ -27,11 +27,20 @@
 #define NUMBER_OF_ROADS 4
 
 #define DIRECTION_OPTIONS 3
+
+// sum of those 3 has to be hundred
+#define CHANCE_TO_RIGHT 33
+#define CHANCE_TO_LEFT 33
+#define CHANCE_TO_STRAIGHT 34
+
+// turning to right when the light is red
+#define TURNING_RIGHT_RED true
+
 enum direction
 {
     S,
     L,
-    R
+    R,
 };
 
 /// it is simulation of intersectation of 4 roads which will be coming
@@ -71,6 +80,18 @@ typedef struct road
     bool is_intersection;
 } field;
 
+enum direction choose_direction() {
+    int random_num = rand() % 100; 
+
+    if (random_num < CHANCE_TO_RIGHT) {
+        return R; // Right
+    } else if (random_num < CHANCE_TO_RIGHT + CHANCE_TO_LEFT) {
+        return L; // Left
+    } else {
+        return S; // Straight
+    }
+}
+
 // generating new cars
 void spawn_cars(field (*roads)[ROAD_LENGTH])
 {
@@ -93,8 +114,9 @@ void spawn_cars(field (*roads)[ROAD_LENGTH])
                 fprintf(stderr, "ERROR: Allocating cars failed");
                 exit(1);
             }
-            new_car->speed = rand() % MAX_SPEED;; // starting speed
-            new_car->dir = rand() % DIRECTION_OPTIONS;
+            new_car->speed = rand() % MAX_SPEED;
+            ; // starting speed
+            new_car->dir = choose_direction();
 
             road[0].car_ptr = new_car;
         }
@@ -121,7 +143,7 @@ void init(int seed, field road[])
         road[i].is_intersection = false;
     }
 
-    // if (test != 0)
+    // if (test != 0 && test != 3)
     // {
     //     test++;
     //     return;
@@ -147,29 +169,47 @@ void init(int seed, field road[])
         }
         int speed = rand() % MAX_SPEED; // rand() % MAX_SPEED ;
         new_car->speed = speed;
-        new_car->dir = rand() % DIRECTION_OPTIONS;
-        // if (pos < 49)
-        // {
-        //     new_car->dir = R;
-        // }
-        // else
-        // {
-        //     new_car->dir = S;
-        // }
+        new_car->dir = choose_direction();
 
         road[pos].car_ptr = new_car;
     }
     test++;
 }
 
-void print_road(field road[])
+void print_road(field road[], short int road_code, semaphor N, semaphor W)
 {
     for (int i = 0; i < ROAD_LENGTH; i++)
     {
         if (road[i].car_ptr == NULL)
-            printf("-");
+            if ((road_code == NORTH || road_code == SOUTH) && N.green)
+            {
+                printf("\033[0;32m-\033[0m");
+            }
+            else if (((road_code == WEST || road_code == EAST) && W.green))
+            {
+                printf("\033[0;32m-\033[0m");
+            }
+            else
+            {
+
+                printf("\033[0;31m-\033[0m");
+            }
         else
-            printf("%d", road[i].car_ptr->speed);
+        {
+            if (road[i].car_ptr->dir == S)
+            {
+                printf("%d", road[i].car_ptr->speed);
+            }
+            else if (road[i].car_ptr->dir == R)
+            {
+                printf("\033[0;34m%d\033[0m", road[i].car_ptr->speed);
+            }
+            else if (road[i].car_ptr->dir == L)
+            {
+                printf("\033[0;33m%d\033[0m", road[i].car_ptr->speed);
+            }
+            
+        }
     }
     // printf("\n");
 }
@@ -229,19 +269,87 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                     // if it is standing before crossroad car does not move
                     if (i == POSITION_BEFORE_CROOSROAD)
                     {
-                        speed = 0;
+
+                        // will check if there are incoming cars from the direction whehe the green light is on if there are none
+                        // speed will adjust to 2 ot 1 and turning right rule will take care of rest
+                        bool check_turn = false;
+                        if (TURNING_RIGHT_RED && road[i].car_ptr->dir == R)
+                        {
+                            check_turn = true;
+                            int new_road_id = (j - 1) % 4;
+                            if (new_road_id < 0)
+                                new_road_id = 3;
+
+                            field *new_road = roads[new_road_id];
+
+                            for (int k = 0; k < 6; k++)
+                            {
+                                if (new_road[POSITION_BEFORE_CROOSROAD + 2 - k].car_ptr != NULL)
+                                {
+                                    if (new_road[POSITION_BEFORE_CROOSROAD + 2 - k].position + new_road[POSITION_BEFORE_CROOSROAD + 2 - k].car_ptr->speed >= POSITION_BEFORE_CROOSROAD + 1)
+                                    {
+                                        check_turn = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!check_turn)
+                        {
+                            speed = 0;
+                        }
+                        else
+                        {
+                            // turn to right on red light is safe and speed is determined by car speed at the field 49
+                            // in case it was 0 car will accelerate and move just by one othewise by 2
+                            speed = road[i].car_ptr->speed ? 2 : 1;
+                        }
                     }
+
                     else if (i + speed > POSITION_BEFORE_CROOSROAD && i < POSITION_BEFORE_CROOSROAD)
                     {
                         speed = POSITION_BEFORE_CROOSROAD - i;
                     }
                 }
 
-                if ((j == WEST || j == EAST) && W.green == false)
+                else if ((j == WEST || j == EAST) && W.green == false)
                 {
                     if (i == POSITION_BEFORE_CROOSROAD)
                     {
-                        speed = 0;
+                        // will check if there are incoming cars from the direction whehe the green light is on if there are none
+                        // speed will adjust to 2 ot 1 and turning right rule will take care of rest
+                        bool check_turn = false;
+                        if (TURNING_RIGHT_RED && road[i].car_ptr->dir == R)
+                        {
+                            check_turn = true;
+                            int new_road_id = (j - 1) % 4;
+                            if (new_road_id < 0)
+                                new_road_id = 3;
+
+                            field *new_road = roads[new_road_id];
+
+                            for (int k = 0; k < 6; k++)
+                            {
+                                if (new_road[POSITION_BEFORE_CROOSROAD + 2 - k].car_ptr != NULL)
+                                {
+                                    if (new_road[POSITION_BEFORE_CROOSROAD + 2 - k].position + new_road[POSITION_BEFORE_CROOSROAD + 2 - k].car_ptr->speed >= POSITION_BEFORE_CROOSROAD + 1)
+                                    {
+                                        check_turn = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!check_turn)
+                        {
+                            speed = 0;
+                        }
+                        else
+                        {
+                            // turn to right on red light is safe and speed is determined by car speed at the field 49
+                            // in case it was 0 car will accelerate and move just by one othewise by 2
+                            speed = road[i].car_ptr->speed ? 2 : 1;
+                        }
                     }
                     else if (i + speed > POSITION_BEFORE_CROOSROAD && i < POSITION_BEFORE_CROOSROAD)
                     {
@@ -281,11 +389,11 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                         field *new_road = roads[new_road_id];
 
                         // POSITION_BEFORE_CROOSROAD + 3 TODO asi by malo fungovat vzdy
-                        if (new_road[52].car_ptr == NULL)
+                        if (new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr == NULL)
                         {
-                            new_road[52].car_ptr = road[i].car_ptr;
-                            new_road[52].car_ptr->speed = speed;
-                            new_road[52].car_ptr->dir = S;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr = road[i].car_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->speed = speed;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->dir = S;
                             road[i].car_ptr = NULL;
                             continue;
                         }
@@ -306,15 +414,26 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
 
                         field *new_road = roads[new_road_id];
                         // POSITION_BEFORE_CROOSROAD + 4 TODO asi by malo fungovat vzdy
-                        new_road[53].car_ptr = road[i].car_ptr;
-                        new_road[53].car_ptr->speed = speed;
-                        new_road[53].car_ptr->dir = S;
-                        road[i].car_ptr = NULL;
-                        continue;
+                        if (new_road[POSITION_BEFORE_CROOSROAD + 4].car_ptr == NULL)
+                        {
+                            new_road[POSITION_BEFORE_CROOSROAD + 4].car_ptr = road[i].car_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 4].car_ptr->speed = speed;
+                            new_road[POSITION_BEFORE_CROOSROAD + 4].car_ptr->dir = S;
+                            road[i].car_ptr = NULL;
+                            continue;
+                        }
+                        else
+                        {
+                            speed = 1;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr = road[i].car_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->speed = speed;
+                            new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->dir = S;
+                            road[i].car_ptr = NULL;
+                            continue;
+                        }
                     }
 
                     // turning LEFT
-
 
                     if (road[i].car_ptr->dir == L && i == POSITION_BEFORE_CROOSROAD && speed == 2)
                     {
@@ -336,15 +455,15 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                         }
                         if (check)
                         {
-                            new_road[50].car_ptr = road[i].car_ptr;
-                            new_road[50].car_ptr->speed = speed;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr = road[i].car_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->speed = speed;
                             // car will appear on the opposite road
                             // C -> CAR       K -> part of crossroad    - -> ordinary field
                             //   --                                            --
                             // --KK--         ----> next iteration           --KC-- so from now on for the car can be applied rule turning right when in field 50
                             // -CKK--                                        --KK-- of the opposite side
                             //   --                                            --
-                            new_road[50].car_ptr->dir = R; // TODO ----- asi zmatok ale vysvetlim preco na R
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R; // TODO ----- asi zmatok ale vysvetlim preco na R
                             road[i].car_ptr = NULL;
                             continue;
                         }
@@ -352,62 +471,70 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
 
                     // in case that both cars on the opposide side of the road are staying on the field 50 and are trying to turn left
 
-                    if (i == 50 && road[i].car_ptr->dir == L)
+                    if (i == POSITION_BEFORE_CROOSROAD + 1 && road[i].car_ptr->dir == L)
                     {
 
                         int new_road_id = (j + 2) % 4;
                         field *new_road = roads[new_road_id];
 
-                        // they will change positions at the same time 
-                        if (new_road[50].car_ptr != NULL && new_road[50].car_ptr->dir == L){
+                        // they will change positions at the same time
+                        if (new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr != NULL && new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir == L)
+                        {
                             car *tmp_ptr = road[i].car_ptr;
-                            road[i].car_ptr = new_road[50].car_ptr;
+                            road[i].car_ptr = new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr;
                             road[i].car_ptr->dir = R;
                             road[i].car_ptr->speed = 1;
-                            new_road[50].car_ptr = tmp_ptr;
-                            new_road[50].car_ptr->dir = R;
-                            new_road[50].car_ptr->speed = 1;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr = tmp_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->speed = 1;
                             continue;
                         }
                     }
 
-                    if (road[i].car_ptr->dir == L && i == 50 && speed == 1)
+                    if (road[i].car_ptr->dir == L && i == POSITION_BEFORE_CROOSROAD + 1 && speed == 1)
                     {
 
                         int new_road_id = (j + 2) % 4;
                         field *new_road = roads[new_road_id];
-
+                        bool check = true;
                         // check if the opposite side is empty so car can turn left
                         for (int k = 0; k < 6; k++)
                         {
                             if (new_road[POSITION_BEFORE_CROOSROAD + 1 - k].car_ptr != NULL)
                             {
-                                if (new_road[POSITION_BEFORE_CROOSROAD + 1 - k].position + new_road[POSITION_BEFORE_CROOSROAD + 1 - k].car_ptr->speed >= 50)
+                                if (new_road[POSITION_BEFORE_CROOSROAD + 1 - k].position + new_road[POSITION_BEFORE_CROOSROAD + 1 - k].car_ptr->speed >= POSITION_BEFORE_CROOSROAD + 1)
                                 {
                                     road[i].car_ptr->speed = 0;
-                                    continue;
+                                    check = false;
+                                    break;
                                 }
                             }
                         }
-
-                        new_road[50].car_ptr = road[i].car_ptr;
-                        new_road[50].car_ptr->speed = speed;
-                        // same thing as above only now car is moving from starting position 50 by one field
-                        new_road[50].car_ptr->dir = R;
-                        road[i].car_ptr = NULL;
-                        continue;
+                        if (check)
+                        {
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr = road[i].car_ptr;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->speed = speed;
+                            // same thing as above only now car is moving from starting position 50 by one field
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R;
+                            road[i].car_ptr = NULL;
+                            continue;
+                        }
+                        else
+                        {
+                            continue;
+                        }
                     }
 
                     // in this case car will be already on the road with correct direction
-                    if (road[i].car_ptr->dir == L && i == 50 && speed == 2)
+                    if (road[i].car_ptr->dir == L && i == POSITION_BEFORE_CROOSROAD + 1 && speed == 2)
                     {
 
                         int new_road_id = (j + 1) % 4;
 
                         field *new_road = roads[new_road_id];
-                        new_road[52].car_ptr = road[i].car_ptr;
-                        new_road[52].car_ptr->speed = speed;
-                        new_road[52].car_ptr->dir = S;
+                        new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr = road[i].car_ptr;
+                        new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->speed = speed;
+                        new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->dir = S;
                         road[i].car_ptr = NULL;
                         continue;
                     }
@@ -461,22 +588,66 @@ int main()
 
     char dir_info[4][10] = {"NORTH", "WEST", "SOUTH", "EAST"};
 
+    printf("number represents car speed and colour of number the direction:\nWHITE --> STRAIGHT\t\033[0;34mBLUE --> RIGHT\t\033[0;33mYELLOW --> LEFT\033[0m\n");
+
+
     // Start simulation
     for (int t = 1; t < ITERATIONS; t++)
     {
         printf("Iteration %d:\n", t);
-        printf("%s \t", dir_info[NORTH]);
-        print_road(road[NORTH]);
-        printf("\t %s \n", dir_info[SOUTH]);
-        printf("%s \t", dir_info[WEST]);
-        print_road(road[WEST]);
-        printf("\t %s \n", dir_info[EAST]);
-        printf("%s \t", dir_info[SOUTH]);
-        print_road(road[SOUTH]);
-        printf("\t %s \n", dir_info[NORTH]);
-        printf("%s \t", dir_info[EAST]);
-        print_road(road[EAST]);
-        printf("\t %s \n", dir_info[WEST]);
+
+        if (NORTH_SOUTH.green)
+        {
+            printf("\033[0;32m%s \t\033[0m", dir_info[NORTH]);
+            print_road(road[NORTH], NORTH, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;32m\t %s \n\033[0m", dir_info[SOUTH]);
+        }
+        else
+        {
+            printf("\033[0;31m%s \t\033[0m", dir_info[NORTH]);
+            print_road(road[NORTH], NORTH, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;31m\t %s \n\033[0m", dir_info[SOUTH]);
+        }
+
+        if (WEST_EAST.green)
+        {
+            printf("\033[0;32m%s \t\033[0m", dir_info[WEST]);
+            print_road(road[WEST], WEST, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;32m\t %s \n\033[0m", dir_info[EAST]);
+        }
+        else
+        {
+            printf("\033[0;31m%s \t\033[0m", dir_info[WEST]);
+            print_road(road[WEST], WEST, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;31m\t %s \n\033[0m", dir_info[EAST]);
+        }
+
+        if (NORTH_SOUTH.green)
+        {
+            printf("\033[0;32m%s \t\033[0m", dir_info[SOUTH]);
+            print_road(road[SOUTH], SOUTH, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;32m\t %s \n\033[0m", dir_info[NORTH]);
+        }
+        else
+        {
+            printf("\033[0;31m%s \t\033[0m", dir_info[SOUTH]);
+            print_road(road[SOUTH], SOUTH, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;31m\t %s \n\033[0m", dir_info[NORTH]);
+        }
+
+        if (WEST_EAST.green)
+        {
+            printf("\033[0;32m%s \t\033[0m", dir_info[EAST]);
+            print_road(road[EAST], EAST, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;32m\t %s \n\033[0m", dir_info[WEST]);
+        }
+        else
+        {
+            printf("\033[0;31m%s \t\033[0m", dir_info[EAST]);
+            print_road(road[EAST], EAST, NORTH_SOUTH, WEST_EAST);
+            printf("\033[0;31m\t %s \n\033[0m", dir_info[WEST]);
+        }
+
         for (int i = ROAD_LENGTH - 1; i >= 0; i--)
         {
             // printf("%i\n",i);
@@ -486,12 +657,10 @@ int main()
             // }
             update_road(road, i, NORTH_SOUTH, WEST_EAST);
         }
-        
+
         update_semaphor(&NORTH_SOUTH, &WEST_EAST);
         spawn_cars(road);
     }
-
-
 
     for (int j = 0; j < 4; j++)
     {
