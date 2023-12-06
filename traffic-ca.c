@@ -22,7 +22,7 @@
 
 // speed which will have new cars in the model
 #define STARTING_SPEED 3
-#define SPAWNING_CARS_CHANCE 20 // what is chane of spwaning car each iteration
+#define SPAWNING_CARS_CHANCE 0 // what is chane of spwaning car each iteration
 
 #define NUMBER_OF_ROADS 4
 
@@ -69,7 +69,9 @@ typedef struct cars
 {
     unsigned int speed;
     short unsigned int dir;
-    // unsigned int position;
+    // false until it is beyond field 53 after it is set to truth
+    // count number of cars which passed the crossroad 
+    bool passed_crossroad;
 
 } car;
 
@@ -80,14 +82,33 @@ typedef struct road
     bool is_intersection;
 } field;
 
-enum direction choose_direction() {
-    int random_num = rand() % 100; 
 
-    if (random_num < CHANCE_TO_RIGHT) {
+void count_passed_cars(field (*roads)[ROAD_LENGTH], int *counter){
+    for (int i = 0; i < 4; i++){
+        field *road = roads[i];
+        for (int j = 53; j < ROAD_LENGTH; j++){
+            if (road[j].car_ptr != NULL && road[j].car_ptr->passed_crossroad == false){
+                counter++;
+                road[j].car_ptr->passed_crossroad = true;
+            }
+        }
+    }
+}
+
+enum direction choose_direction()
+{
+    int random_num = rand() % 100;
+
+    if (random_num < CHANCE_TO_RIGHT)
+    {
         return R; // Right
-    } else if (random_num < CHANCE_TO_RIGHT + CHANCE_TO_LEFT) {
+    }
+    else if (random_num < CHANCE_TO_RIGHT + CHANCE_TO_LEFT)
+    {
         return L; // Left
-    } else {
+    }
+    else
+    {
         return S; // Straight
     }
 }
@@ -117,7 +138,7 @@ void spawn_cars(field (*roads)[ROAD_LENGTH])
             new_car->speed = rand() % MAX_SPEED;
             ; // starting speed
             new_car->dir = choose_direction();
-
+            new_car->passed_crossroad = false;
             road[0].car_ptr = new_car;
         }
     }
@@ -169,7 +190,17 @@ void init(int seed, field road[])
         }
         int speed = rand() % MAX_SPEED; // rand() % MAX_SPEED ;
         new_car->speed = speed;
-        new_car->dir = choose_direction();
+        if (pos > 49)
+        {
+            new_car->dir = S;
+            new_car->passed_crossroad = true;
+        }
+        else
+        {
+            new_car->dir = choose_direction();
+            new_car->passed_crossroad = false;
+
+        }
 
         road[pos].car_ptr = new_car;
     }
@@ -208,7 +239,6 @@ void print_road(field road[], short int road_code, semaphor N, semaphor W)
             {
                 printf("\033[0;33m%d\033[0m", road[i].car_ptr->speed);
             }
-            
         }
     }
     // printf("\n");
@@ -360,6 +390,10 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                 // Rule 4: Movement
                 if (speed != 0)
                 {
+
+                    if (road[i].car_ptr->dir != S && i == POSITION_BEFORE_CROOSROAD && speed > 2){
+                        speed = 2;
+                    }
 
                     // cars turning will always be on position POSITION_BEFORE_CROOSROAD so there is no need for checking additionaly if they can go or not the codnition above will
                     // take care of it
@@ -519,8 +553,7 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                             road[i].car_ptr = NULL;
                             continue;
                         }
-                        else
-                        {
+                        else {
                             continue;
                         }
                     }
@@ -574,6 +607,8 @@ void update_semaphor(semaphor *N, semaphor *W)
 int main()
 {
 
+    int car_passed = 0;
+
     field road[NUMBER_OF_ROADS][ROAD_LENGTH];
     // field new_road[ROAD_LENGTH];
 
@@ -589,7 +624,6 @@ int main()
     char dir_info[4][10] = {"NORTH", "WEST", "SOUTH", "EAST"};
 
     printf("number represents car speed and colour of number the direction:\nWHITE --> STRAIGHT\t\033[0;34mBLUE --> RIGHT\t\033[0;33mYELLOW --> LEFT\033[0m\n");
-
 
     // Start simulation
     for (int t = 1; t < ITERATIONS; t++)
@@ -657,11 +691,12 @@ int main()
             // }
             update_road(road, i, NORTH_SOUTH, WEST_EAST);
         }
-
+        count_passed_cars(road, &car_passed);
         update_semaphor(&NORTH_SOUTH, &WEST_EAST);
         spawn_cars(road);
     }
 
+    printf("Number of cars which passed the crossroad: %i\n", car_passed);
     for (int j = 0; j < 4; j++)
     {
         for (int i = 0; i < ROAD_LENGTH; i++)
