@@ -22,11 +22,9 @@
 
 // speed which will have new cars in the model
 #define STARTING_SPEED 3
-#define SPAWNING_CARS_CHANCE 0 // what is chane of spwaning car each iteration
+#define SPAWNING_CARS_CHANCE 30 // what is chane of spwaning car each iteration
 
 #define NUMBER_OF_ROADS 4
-
-#define DIRECTION_OPTIONS 3
 
 // sum of those 3 has to be hundred
 #define CHANCE_TO_RIGHT 33
@@ -35,6 +33,8 @@
 
 // turning to right when the light is red
 #define TURNING_RIGHT_RED true
+
+#define DIRECTION_OPTIONS 3
 
 enum direction
 {
@@ -50,6 +50,8 @@ enum direction
 /// WEST are cars moving from WEST to EAST
 /// SOUTH are cars moving from SOUTH to NORTH
 /// EAST are cars moving from EAST to WEST
+
+int MAX_STATIONARY_DURATION = 0;
 
 enum road_dir
 {
@@ -70,9 +72,9 @@ typedef struct cars
     unsigned int speed;
     short unsigned int dir;
     // false until it is beyond field 53 after it is set to truth
-    // count number of cars which passed the crossroad 
+    // count number of cars which passed the crossroad
     bool passed_crossroad;
-
+    int stationary_counter;
 } car;
 
 typedef struct road
@@ -80,13 +82,48 @@ typedef struct road
     unsigned int position;
     car *car_ptr;
     bool is_intersection;
+
 } field;
 
-void get_average_speed_values(field (*roads)[ROAD_LENGTH], float *speed, float *measurement){
-    for (int i = 0; i < 4; i++){
+// calculates average over iterations where car were stationary without movement
+// variable stationary_sum is summing up averages of stationary cars in one iteration
+void avegare_cars_are_stationary(field (*roads)[ROAD_LENGTH], float *stationary_sum)
+{
+    float stationary_cars = 0;
+    float all_cars = 0;
+    for (int i = 0; i < NUMBER_OF_ROADS; i++)
+    {
         field *road = roads[i];
-        for (int j = 0; j < ROAD_LENGTH; j++){
-            if (road[j].car_ptr != NULL){
+        for (int j = 0; j < ROAD_LENGTH; j++)
+        {
+            if (road[j].car_ptr != NULL)
+            {
+                all_cars++;
+                if (road[j].car_ptr->speed == 0)
+                {
+                    stationary_cars++;
+                }
+            }
+        }
+    }
+
+    // result * 100 = percentage of stationary cars in this iteration
+    if (all_cars != 0)
+    {
+        float result = stationary_cars / all_cars;
+        (*stationary_sum) = (*stationary_sum) + result;
+    }
+}
+
+void get_average_speed_values(field (*roads)[ROAD_LENGTH], float *speed, float *measurement)
+{
+    for (int i = 0; i < NUMBER_OF_ROADS; i++)
+    {
+        field *road = roads[i];
+        for (int j = 0; j < ROAD_LENGTH; j++)
+        {
+            if (road[j].car_ptr != NULL)
+            {
                 (*speed) = (*speed) + road[j].car_ptr->speed;
                 (*measurement)++;
             }
@@ -94,12 +131,15 @@ void get_average_speed_values(field (*roads)[ROAD_LENGTH], float *speed, float *
     }
 }
 
-
-void count_passed_cars(field (*roads)[ROAD_LENGTH], int *counter){
-    for (int i = 0; i < 4; i++){
+void count_passed_cars(field (*roads)[ROAD_LENGTH], int *counter)
+{
+    for (int i = 0; i < NUMBER_OF_ROADS; i++)
+    {
         field *road = roads[i];
-        for (int j = 53; j < ROAD_LENGTH; j++){
-            if (road[j].car_ptr != NULL && road[j].car_ptr->passed_crossroad == false){
+        for (int j = 53; j < ROAD_LENGTH; j++)
+        {
+            if (road[j].car_ptr != NULL && road[j].car_ptr->passed_crossroad == false)
+            {
                 (*counter)++;
                 road[j].car_ptr->passed_crossroad = true;
             }
@@ -129,7 +169,7 @@ enum direction choose_direction()
 void spawn_cars(field (*roads)[ROAD_LENGTH])
 {
 
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < NUMBER_OF_ROADS; i++)
     {
         if ((rand() % PERCENTAGE < SPAWNING_CARS_CHANCE))
         {
@@ -151,6 +191,7 @@ void spawn_cars(field (*roads)[ROAD_LENGTH])
             ; // starting speed
             new_car->dir = choose_direction();
             new_car->passed_crossroad = false;
+            new_car->stationary_counter = 0;
             road[0].car_ptr = new_car;
         }
     }
@@ -202,6 +243,7 @@ void init(int seed, field road[])
         }
         int speed = rand() % MAX_SPEED; // rand() % MAX_SPEED ;
         new_car->speed = speed;
+        new_car->stationary_counter = 0;
         if (pos > 49)
         {
             new_car->dir = S;
@@ -211,7 +253,6 @@ void init(int seed, field road[])
         {
             new_car->dir = choose_direction();
             new_car->passed_crossroad = false;
-
         }
 
         road[pos].car_ptr = new_car;
@@ -403,7 +444,13 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                 if (speed != 0)
                 {
 
-                    if (road[i].car_ptr->dir != S && i == POSITION_BEFORE_CROOSROAD && speed > 2){
+                    if (road[i].car_ptr->dir != L)
+                    {
+                        road[i].car_ptr->stationary_counter = 0;
+                    }
+
+                    if (road[i].car_ptr->dir != S && i == POSITION_BEFORE_CROOSROAD && speed > 2)
+                    {
                         speed = 2;
                     }
 
@@ -510,6 +557,7 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                             // -CKK--                                        --KK-- of the opposite side
                             //   --                                            --
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R; // TODO ----- asi zmatok ale vysvetlim preco na R
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->stationary_counter = 0;
                             road[i].car_ptr = NULL;
                             continue;
                         }
@@ -530,9 +578,11 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                             road[i].car_ptr = new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr;
                             road[i].car_ptr->dir = R;
                             road[i].car_ptr->speed = 1;
+                            road[i].car_ptr->stationary_counter = 0;
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr = tmp_ptr;
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R;
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->speed = 1;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->stationary_counter = 0;
                             continue;
                         }
                     }
@@ -562,10 +612,18 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->speed = speed;
                             // same thing as above only now car is moving from starting position 50 by one field
                             new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->dir = R;
+                            new_road[POSITION_BEFORE_CROOSROAD + 1].car_ptr->stationary_counter = 0;
                             road[i].car_ptr = NULL;
                             continue;
                         }
-                        else {
+                        else
+                        {
+                            // stopping
+                            road[i].car_ptr->stationary_counter++;
+                            if (road[i].car_ptr->stationary_counter > MAX_STATIONARY_DURATION)
+                            {
+                                MAX_STATIONARY_DURATION = road[i].car_ptr->stationary_counter;
+                            }
                             continue;
                         }
                     }
@@ -580,6 +638,7 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                         new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr = road[i].car_ptr;
                         new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->speed = speed;
                         new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->dir = S;
+                        new_road[POSITION_BEFORE_CROOSROAD + 3].car_ptr->stationary_counter = 0;
                         road[i].car_ptr = NULL;
                         continue;
                     }
@@ -592,6 +651,11 @@ void update_road(field (*roads)[ROAD_LENGTH], int i, semaphor N, semaphor W)
                 else
                 {
                     road[i].car_ptr->speed = 0;
+                    road[i].car_ptr->stationary_counter++;
+                    if (road[i].car_ptr->stationary_counter > MAX_STATIONARY_DURATION)
+                    {
+                        MAX_STATIONARY_DURATION = road[i].car_ptr->stationary_counter;
+                    }
                 }
             }
         }
@@ -622,7 +686,8 @@ int main()
     int car_passed = 0;
     float sum_speed = 0;
     float total_measurement = 0;
-
+    // sums up the stationary cars over each iteration
+    float stationary_cars_average = 0;
 
     field road[NUMBER_OF_ROADS][ROAD_LENGTH];
     // field new_road[ROAD_LENGTH];
@@ -699,6 +764,7 @@ int main()
 
         count_passed_cars(road, &car_passed);
         get_average_speed_values(road, &sum_speed, &total_measurement);
+        avegare_cars_are_stationary(road, &stationary_cars_average);
 
         for (int i = ROAD_LENGTH - 1; i >= 0; i--)
         {
@@ -709,16 +775,22 @@ int main()
             // }
             update_road(road, i, NORTH_SOUTH, WEST_EAST);
         }
-        
+
         update_semaphor(&NORTH_SOUTH, &WEST_EAST);
         spawn_cars(road);
     }
 
     printf("Number of cars which passed the crossroad: %i\n", car_passed);
-    
-    float average_speed = sum_speed/total_measurement;
-    
-    printf("Average speed of cars was: %f\n",average_speed);
+
+    float average_speed = sum_speed / total_measurement;
+
+    printf("Average speed of cars was: %f\n", average_speed);
+
+    float cars_stationary = stationary_cars_average / (ITERATIONS - 1);
+
+    printf("The average percentage of stationary cars over the simulation is: %f%%\n", cars_stationary * 100);
+
+    printf("Maximum duration in which car was stationary %i\n", MAX_STATIONARY_DURATION);
     for (int j = 0; j < 4; j++)
     {
         for (int i = 0; i < ROAD_LENGTH; i++)
@@ -731,6 +803,5 @@ int main()
         }
     }
 }
-
 
 //
